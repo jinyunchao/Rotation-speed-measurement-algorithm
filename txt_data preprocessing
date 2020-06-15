@@ -1,0 +1,24 @@
+# txt2mat
+# data pre-processing
+
+clear;
+clc;
+format long;                     %设置输出的显示格式，long为显示16位
+
+% 读取文件
+Path= 'C:\Users\JYC\Desktop\PC_Matlab\';         % 设置数据存放的文件夹路径
+File=dir(fullfile(Path,'*.txt'));  % 显示文件夹下所有符合后缀名为.txt文件的完整信息
+FileNames={File.name}';            % 提取符合后缀名为.txt的所有文件的文件名，转换为n行1列
+
+for i=1:1:length(FileNames)
+    
+    data_in_name=strcat(Path, FileNames(i));
+    data_in_name=char(data_in_name);    %data_in_name转换为char
+    out_name_1=char(FileNames(i));
+    out_name_2=out_name_1(1:end-4);
+    m=textread(data_in_name);        %不带表头的txt文件读取
+    %m=textread(data_in_name,'','headerlines',24);%带表头的txt文件读取
+    data_out_name=strcat(out_name_2,'.mat');
+    save(data_out_name,'m');
+    
+end

@@ -1,0 +1,54 @@
+# 四倍频算法1
+# A超前B
+function [num_FHG t_FHG]=quadruplicated_frequency_1(A_vol,B_vol,delta_t_sample,l_num)
+%UNTITLED2 此处显示有关此函数的摘要
+%   此处显示详细说明
+num_FHG(1)=0;  %数组第一个值为0
+t_FHG=[]; %四倍频后的脉冲时间数
+t_clock=0:delta_t_sample:delta_t_sample*(l_num-1);  %时钟数组
+j=2;
+k=1;
+for i=1:l_num-1
+    if A_vol(i)==1&&B_vol(i)==1&&A_vol(i+1)==1&&B_vol(i+1)==0   %A高电平，B下降沿
+        num_FHG(j)=num_FHG(j-1)+1;
+        t_FHG(k)=t_clock(i);
+        j=j+1;
+        k=k+1;
+    else if A_vol(i)==0&&B_vol(i)==1&&A_vol(i+1)==1&&B_vol(i+1)==1  %A上升沿B高电平
+            num_FHG(j)=num_FHG(j-1)+1;
+            t_FHG(k)=t_clock(i);
+            j=j+1;
+            k=k+1;
+        else if A_vol(i)==0&&B_vol(i)==0&&A_vol(i+1)==0&&B_vol(i+1)==1  %A低电平B上升沿
+                num_FHG(j)=num_FHG(j-1)+1;
+                t_FHG(k)=t_clock(i);
+                j=j+1;
+                k=k+1;
+            else if A_vol(i)==1&&B_vol(i)==0&&A_vol(i+1)==0&&B_vol(i+1)==0  %A下降沿B低电平
+                    num_FHG(j)=num_FHG(j-1)+1;
+                    t_FHG(k)=t_clock(i);
+                    j=j+1;
+                    k=k+1;
+%                 else num_FHG(j)=num_FHG(j-1);
+%                      t_FHG(k)=t_clock(i);
+%                      j=j+1;
+%                      k=k+1;
+                end
+            end
+        end
+    end
+    i=i+1;
+end
+clear i j k;
+num_FHG(1)=[];
+t_FHG=t_FHG-t_FHG(1);
+% t_FHG(1)=[];
+clear A_vol;
+clear B_vol;
+clear t_clock;
+end
+% t=t_FHG(1:1000);
+% for i=1:1:999
+%     deltaT(i)=t(i+1)-t(i);
+%     v(i)=1/32768/deltaT(i)/2/pi*60;
+% end

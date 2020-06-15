@@ -1,0 +1,705 @@
+clear;
+clc;
+format long;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 读取.mat文件
+Path= 'C:\Users\JYC\Desktop\PC_Matlab\';         % 设置数据存放的文件夹路径
+File=dir(fullfile(Path,'*.mat'));  % 显示文件夹下所有符合后缀名为.mat文件的完整信息
+
+%参数输入
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+ sample_frequence=50*10^6;      %示波器 采样频率
+ resolution=8192*4;            %码盘分辨率（四倍频后）
+ drive_sample_frequency=1000;   %驱动器速度环采样频率
+ ave_num=100;                   %测角稳定性分析中均分角度数量
+    
+ delta_t_sample=1/sample_frequence;   %示波器采样周期:s 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+load(File.name);       %载入mat文件
+vol=m;
+clear m;
+vol_A=vol(:,1)';
+vol_B=vol(:,2)';
+vol_Z=vol(:,3)';
+clear vol;
+l=length(vol_A);%数据长度
+t_sample=0:delta_t_sample:delta_t_sample*(l-1);     %设定时间基准
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%A向数字化过程
+i=1;
+A_vol=[];
+for i=1:1:l
+    if vol_A(i)<2
+        A_vol(i)=0;
+    else A_vol(i)=1;
+    end
+    i=i+1;
+end
+clear i;
+clear vol_A;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%B向数字化过程
+i=1;
+B_vol=[];
+for i=1:1:l
+    if vol_B(i)<2
+        B_vol(i)=0;
+    else B_vol(i)=1;
+    end
+    i=i+1;
+end
+clear i;
+clear vol_B;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%Z向数字化过程
+i=1;
+Z_vol=[];
+for i=1:1:l
+    if vol_Z(i)<2.0
+        Z_vol(i)=0;
+    else Z_vol(i)=1;
+    end
+    i=i+1;
+end
+clear i;
+clear vol_Z;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%采Z向上升沿下降沿
+i=1;
+j=1;
+for i=1:1:l-2
+    if ((Z_vol(i)-0.5)<0&&((Z_vol(i)-0.5)*(Z_vol(i+1)-0.5)<0))
+        t_Z_start(j)=t_sample(i+1);    % t_Z_start和t_Z_end是一个数组
+        elseif ((Z_vol(i)-0.5)>0&&((Z_vol(i)-0.5)*(Z_vol(i+1)-0.5)<0))
+             t_Z_end(j)=t_sample(i+1);
+             j=j+1;
+    end
+end
+clear i j;
+%clear Z_vol;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%统一Z向上升沿、下降沿时间维度,即将Z上升沿下降沿的时间数组的长度统一
+l_Z_1=min(length(t_Z_start),length(t_Z_end));
+t_Z_start=t_Z_start(1:l_Z_1);
+t_Z_end=t_Z_end(1:l_Z_1);
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%简单求取tZ的平均长度，为后面去除波动点提供依据
+
+if (t_Z_start(3)-t_Z_start(2)) > 0.9*(t_Z_start(5)-t_Z_start(4)) && (t_Z_start(3)-t_Z_start(2)) <1.1 *(t_Z_start(5)-t_Z_start(4))       
+    tZaverage1 = (t_Z_start(3)-t_Z_start(2) + t_Z_start(5)-t_Z_start(4))/2;
+else
+    warning('Z相信号存在波动点，周期不稳定');
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%去除Z相波动点
+i=1;
+j=1;
+unusual_t_start_Z=[];
+unusual_t_end_Z=[];
+for i=1:l_Z_1-1
+    if (t_Z_start(i+1)-t_Z_start(i))<0.1*tZaverage1    %两个相邻上升沿时间差不超过千分之一秒，认为是波动点，后面将这一点去除
+        unusual_t_start_Z(j)=i+1;
+        j=j+1;
+    elseif(t_Z_end(i+1)-t_Z_end(i))<0.1*tZaverage1 
+        unusual_t_end_Z(j)=i+1;
+        j=j+1;
+    end
+end
+clear i j;
+t_Z_start(unusual_t_start_Z)=[];
+t_Z_end(unusual_t_end_Z)=[];
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%统一Z向start和end长度
+l_Z_final=min(length(t_Z_start),length(t_Z_end));
+t_Z_start=t_Z_start(1:l_Z_final);
+t_Z_end=t_Z_end(1:l_Z_final);
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%求Z向脉冲中点
+i=1;
+for i=1:l_Z_final
+    t_Z_middle(i)=(t_Z_end(i)+t_Z_start(i))/2;
+    delta_t_Z(i)=t_Z_end(i)-t_Z_start(i);
+    i=i+1;
+end
+clear i j;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%以第一个Z项型号为时间零点统一时间轴
+i=1;
+j=1;
+k=1;
+A_vol_pass=[];
+B_vol_pass=[];
+for i=1:1:l
+    if t_sample(i)<=t_Z_middle(1)
+%||t_sample(i)>=t_Z_middle(l_Z_final)
+        A_vol_pass(j)=i;
+        B_vol_pass(k)=i;
+        j=j+1;
+        k=k+1;
+    end
+end
+clear i j;
+A_vol(A_vol_pass)=[];
+B_vol(B_vol_pass)=[];
+t_Z_middle=t_Z_middle-t_Z_middle(1);
+l_num=min(length(A_vol),length(B_vol));   %l_num为AB序列的最小长度
+clear A_vol_pass;
+clear B_vol_pass;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+tZmiddleshow=t_Z_middle*drive_sample_frequency;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%采A向上升沿下降沿
+i=1;
+j=1;
+for i=1:1:l_num-1
+    if ((A_vol(i)-0.5)<0&&((A_vol(i)-0.5)*(A_vol(i+1))-0.5)<0)
+        t_A_start(j)=t_sample(i+1);
+    elseif ((A_vol(i)-0.5)>0&&((A_vol(i)-0.5)*(A_vol(i+1)-0.5)<0))
+        t_A_end(j)=t_sample(i+1);
+        j=j+1;
+    end
+end
+clear i j;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%统一A向上升沿、下降沿时间维度
+l_A=min(length(t_A_start),length(t_A_end));
+t_A_start=t_A_start(1:l_A);
+t_A_end=t_A_end(1:l_A);
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%简单求取tA的平均长度，为后面去除波动点提供依据
+
+if (t_A_start(3)-t_A_start(2)) > 0.7*(t_A_start(5)-t_A_start(4)) && (t_A_start(3)-t_A_start(2)) < 1.3 *(t_A_start(5)-t_A_start(4))            
+    tAaverage1 = (t_A_start(3)-t_A_start(2) + t_A_start(5)-t_A_start(4))/2;
+else
+    warning('A相信号存在波动点，周期不稳定');
+end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%去除A相波动点
+j=1;
+unusual_t_start_A=[];
+unusual_t_end_A=[];
+for i=1:length(t_A_start)-1
+    if (t_A_start(i+1)-t_A_start(i))<0.3*10^(-6)
+        unusual_t_start_A(j)=i+1;
+        j=j+1;
+    end
+end
+
+j=1;
+for i=1:length(t_A_end)-1
+ if (t_A_end(i+1)-t_A_end(i))<0.3*10^(-6)
+          unusual_t_end_A(j)=i+1;
+          j=j+1;
+ end
+end
+t_A_start(unusual_t_start_A)=[];%   去除这些波动的上升沿和下降沿的时间序号
+t_A_end(unusual_t_end_A)=[];
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%采B向上升沿下降沿
+i=1;
+j=1;
+for i=1:1:l_num-1
+    if ((B_vol(i)-0.5)<0&&((B_vol(i)-0.5)*(B_vol(i+1))-0.5)<0)
+        t_B_start(j)=t_sample(i+1);
+        elseif ((B_vol(i)-0.5)>0&&((B_vol(i)-0.5)*(B_vol(i+1)-0.5)<0))
+             t_B_end(j)=t_sample(i+1);
+             j=j+1;
+    end
+end
+clear i j;
+clear t_sample;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%统一B向上升沿、下降沿时间维度
+l_B=min(length(t_B_start),length(t_B_end));
+t_B_start=t_B_start(1:l_B);
+t_B_end=t_B_end(1:l_B);
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  %简单求取tB的平均长度，为后面去除波动点提供依据
+  
+if (t_B_start(3)-t_B_start(2)) > 0.7*(t_B_start(5)-t_B_start(4)) &&   (t_B_start(3)-t_B_start(2)) < 1.3*(t_B_start(5)-t_B_start(4))      
+    tBaverage1 = (t_B_start(3)-t_B_start(2) + t_B_start(5)-t_B_start(4))/2;
+else
+    warning('B相信号存在波动点，周期不稳定');
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%去除B相波动点
+j=1;
+unusual_t_start_B=[];
+unusual_t_end_B=[];
+for i=1:length(t_B_start)-1
+    if (t_B_start(i+1)-t_B_start(i))<0.3*10^(-6)
+        unusual_t_start_B(j)=i+1;
+        j=j+1;
+    end
+end
+
+j=1;
+for i=1:length(t_B_end)-1
+ if (t_B_end(i+1)-t_B_end(i))<0.3*10^(-6)
+          unusual_t_end_B(j)=i+1;
+          j=j+1;
+ end
+end
+t_B_start(unusual_t_start_B)=[];%   去除这些波动的上升沿和下降沿的时间序号
+t_B_end(unusual_t_end_B)=[];
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%四倍频算法实现 根据A、B的超前滞后关系选择四倍频程序
+if t_A_start(2) > t_B_start(2)
+    [num_FHG t_FHG]=quadruplicated_frequency_1(A_vol,B_vol,delta_t_sample,l_num);   %A超前B
+else [num_FHG t_FHG]=quadruplicated_frequency_2(A_vol,B_vol,delta_t_sample,l_num);  %B超前A
+end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%仿真测角稳定性
+
+% t_stability_1=t1-Z1；
+% delta_t_stability_1=t_stability_1/Z（后）-Z（前）
+
+%使用t区分第i个周期
+turn_num=fix(length(t_FHG)/resolution);         %圈数==4倍频后时间数组长度/分辨率
+t_stability_1=[];
+copies_per_circle=round(resolution/ave_num);    %指每周32768个脉冲分为‘ave_num=100’份分段分析
+i=1;
+j=1;
+k=1;
+for i=1:1:turn_num
+    for j=resolution*(i-1)+copies_per_circle+1:copies_per_circle:resolution*i+1
+   %以四倍频后的时间脉冲时间轴点；用每一圈每隔‘copies_per_circle’个点作为一个采样点，取这个点和每圈第一个点的时间差再除以Z相周期，作为t1的稳定性
+ 
+        t_stability_1(i,k)=t_FHG(j)-t_FHG(resolution*(i-1)+1);  %求出和每圈第一个点的时间差
+        delta_t_stability_1(i,k)=t_stability_1(i,k)/(t_Z_middle(i+1)-t_Z_middle(i));%除以Z相周期
+        k=k+1;
+    end
+    k=1;
+end
+clear i j k;
+
+i=1;
+range_t_stability_1=[];
+std_t_stability_1=[];
+range_delta_t_stability_1=[];
+std_delta_t_stability_1=[];
+for i=1:1:ave_num-1
+    range_t_stability_1(i)=max(t_stability_1(:,i))-min(t_stability_1(:,i)); %一共30圈，每圈取100点，把每圈固定点的时间极差取出。每隔328个倍频脉冲的点对应的时间的极差
+    std_t_stability_1(i)=std(t_stability_1(:,i));   %每隔328个倍频脉冲的点对应的时间的标准差
+    range_delta_t_stability_1(i)=max(delta_t_stability_1(:,i))-min(delta_t_stability_1(:,i));   %t1极差
+    std_delta_t_stability_1(i)=std(delta_t_stability_1(:,i));   %t1标准差
+    i=i+1;  
+end
+clear i;
+
+%使用T区分第i个周期
+i=1;
+for i=1:length(t_Z_middle)-2
+    error(i)=t_FHG(i*resolution+1)-t_Z_middle(i+1);
+end
+clear i;
+
+delta_theta=360/ave_num;
+copies_per_circle=round(resolution/ave_num);
+t_stability_2=[];
+delta_t_stability_2=[];
+for i=1:ave_num-1
+    for j=1:length(t_Z_middle)-1
+        t_stability_2(i,j)=t_FHG(resolution*(j-1)+i*copies_per_circle+1)-t_Z_middle(j);
+        delta_t_stability_2(i,j)=t_stability_2(i,j)/(t_Z_middle(j+1)-t_Z_middle(j));
+    end
+end
+clear i j;
+
+i=1;
+range_t_stability_2=[];
+std_t_stability_2=[];
+range_delta_t_stability_2=[];
+std_delta_t_stability_2=[];
+for i=1:ave_num-1;
+    range_t_stability_2(i)=max(t_stability_2(i,:))-min(t_stability_2(i,:));
+    std_t_stability_2(i)=std(t_stability_2(i,:));
+    range_delta_t_stability_2(i)=max(delta_t_stability_2(i,:))-min(delta_t_stability_2(i,:));
+    std_delta_t_stability_2(i)=std(delta_t_stability_2(i,:));
+    i=i+1;
+end
+delta_t_stability_2=delta_t_stability_2';
+clear i;
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%求取Z相周期T的稳定性数据
+delta_T_stability=[];
+for i=1:length(t_Z_middle)-1
+        delta_T_stability(i)=t_Z_middle(i+1)-t_Z_middle(i); %Z_middle
+end
+range_T=max(delta_T_stability)-min(delta_T_stability);  %T的极差,Z相周期测角稳定性
+rangeT_out=range_T/(10^-7);
+fprintf('Z相周期波动极差= %2f\n',rangeT_out)
+std_T=std(delta_T_stability);
+clear i;
+
+range_theta=delta_theta:delta_theta:360-delta_theta;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%找Z相之后的第1个A的上升沿的序号
+j=1;
+for i=1:length(t_A_start)-resolution/4
+   
+        if t_A_start(i)>t_Z_middle(j)
+          num_Astart(j)=i;
+            j=j+1;
+            
+        end
+end
+ clear j;
+ 
+ %% 检验num_Astart的间隔是否等于分辨率
+ for i=1:length(num_Astart)-1
+     if( num_Astart(i+1)-num_Astart(i) ~= resolution/4 )
+         warning('A相脉冲有周期不是8192的情况');
+         fprintf('错误出现在第 %d 圈',i);
+     end
+ end
+ %% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 求取Z后第j个A上升沿的周期；
+for j = 1:fix(8192/100)
+    
+    for i = 1:length(num_Astart)-1
+        num_A_start = num_Astart + 100*(j-1);
+        t_A = t_A_start(num_A_start);     %求取Z后第j个A上升沿的时间点:从1开始，每隔100取一个
+        cycleA(i) = t_A(i+1)-t_A(i);
+    end
+    
+    range_cycleA(j) = (max(cycleA) - min(cycleA)) * 10^7;
+end
+
+%数据可视化
+figure(1);
+set(gcf,'position',[400,200,1200,800]);
+
+subplot(2,1,1)
+plot(range_cycleA);
+title('一个周期内每隔100个脉冲的A相脉冲周期重复性');
+hold on;
+grid on;
+
+subplot(2,1,2)
+plot(delta_T_stability)
+title('Z相信号周期重复性');
+text(length(delta_T_stability),max(delta_T_stability),num2str(rangeT_out));
+hold on;
+grid on;
+
+%根据Z向脉冲求速度
+i=1;
+v_T=[];
+for i=1:length(t_Z_middle)-1
+    v_T(i)=1/(t_Z_middle(i+1)-t_Z_middle(i))*60;
+    i=i+1;
+end
+clear i;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+time = [1:985];
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%驱动器中M法求实时速度
+t_FHG_M=t_FHG;
+num_FHG_M=num_FHG;
+delta_t_PID_M=1/drive_sample_frequency; 
+t_PID_M=delta_t_PID_M;      %速度环采样周期
+n=floor((t_FHG_M(length(t_FHG_M)))/delta_t_PID_M);  %n为计算速度时一次采样截取的脉冲数
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+FHG_unusual_M=[];   
+j=1;
+for i=1:length(t_FHG_M)
+    if t_FHG_M(i)>n*delta_t_PID_M   %去除n*1ms后的四倍频时间数组内容，选取n个时间段，所以结果会有n个速度值
+        FHG_unusual_M(j)=i;
+        j=j+1;
+    end
+        i=i+1;
+end
+clear i j;
+t_FHG_M(FHG_unusual_M)=[];
+num_FHG_M(FHG_unusual_M)=[];
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+num_pluse_PID_M(1)=0;
+
+j=1;
+for i=1:1:length(t_FHG_M)   %脉冲分段，先以速度环采样周期为节点去卡四倍频脉冲
+    if(t_FHG_M(i)<=t_PID_M)
+        num_pluse_PID_M(j)=num_pluse_PID_M(j)+1;
+    else
+        j=j+1;               %第一个数组结束，j+1，开始第二个速度采样周期
+        num_pluse_PID_M(j)=1;
+        t_PID_M=t_PID_M+delta_t_PID_M;
+    end
+end
+clear i j;
+clear t_FHG_M num_FHG_M;
+v_act_M=(round(num_pluse_PID_M./resolution/delta_t_PID_M.*60*10))/10;   %M法计算速度值
+v_act_M(length(v_act_M))=[];
+range_v_act_M=max(v_act_M)-min(v_act_M);
+std_v_act_M=std(v_act_M);
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%使用T法求实时转速
+mean_delta_num=round(mean(num_pluse_PID_M));
+t_FHG_T=t_FHG;
+num_FHG_T=num_FHG;
+delta_t_T=[];
+delta_num_T=mean_delta_num;
+m=floor(length(num_FHG_T)/delta_num_T);
+j=1;
+for i=1:delta_num_T:(m-1)*delta_num_T+1
+    delta_t_T(j)=t_FHG_T(i+delta_num_T)-t_FHG_T(i);
+    j=j+1;
+end
+clear i j;
+clear t_FHG_T num_FHG_T;
+v_act_T=(round(delta_num_T/resolution./delta_t_T.*60*10))/10;   %和M法的区别就在于M法脉冲数变；T法时间数组变
+range_v_act_T=max(v_act_T)-min(v_act_T);
+std_v_act_T=std(v_act_T);
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%使用M/T法求实时转速
+%驱动器中M/T法求实时速度
+t_FHG_M_T=t_FHG;
+num_FHG_M_T=num_FHG;
+delta_t_PID_M_T=1/drive_sample_frequency;
+t_PID_M_T=delta_t_PID_M_T;%速度环采样周期
+n=floor((t_FHG_M_T(length(t_FHG_M_T)))/delta_t_PID_M_T);
+
+
+FHG_unusual=[];     
+j=1;
+for i=1:length(t_FHG_M_T)           %脉冲数组整形，只采集n个时间点后面的时间不要了，因为不满足一个采样周期的脉冲数了
+    if t_FHG_M_T(i)>n*delta_t_PID_M_T
+        FHG_unusual(j)=i;
+        j=j+1;
+    end
+        i=i+1;
+end
+clear i j;
+t_FHG_M_T(FHG_unusual)=[];
+num_FHG_M_T(FHG_unusual)=[];
+num_pluse_PID_M_T(1)=0;
+i=1;
+j=1;
+for i=1:1:length(t_FHG_M_T)
+    if(t_FHG_M_T(i)<=t_PID_M_T)
+        num_pluse_PID_M_T(j)=num_pluse_PID_M_T(j)+1;
+    else j=j+1;
+        num_pluse_PID_M_T(j)=1;
+        t_PID_M_T=t_PID_M_T+delta_t_PID_M;
+    end
+end
+clear i j;
+
+i=1;
+j=1;
+k=1;
+p=length(num_pluse_PID_M_T);    %M/T法脉冲数数组长度
+q=max(num_pluse_PID_M_T);   %M/T法脉冲数最大值
+t_PID_M_T=delta_t_PID_M_T;
+t_M_T=zeros(p,q);
+for i=1:1:length(t_FHG_M_T)
+    if(t_FHG_M_T(i)<=t_PID_M_T)
+        t_M_T(j,k)=t_FHG_M_T(i);    %t_M_T是个二维数组，行代表速度环采样周期，列代表每个示波器采样点采到的时间
+        k=k+1;
+    else j=j+1;
+        k=1;
+        t_M_T(j,k)=t_FHG_M_T(i);
+        k=k+1;
+        t_PID_M_T=t_PID_M_T+delta_t_PID_M_T;
+    end
+end
+clear i j k;
+
+i=1;
+for i=1:1:p
+    delta_t_M_T(i)=t_M_T(i,(num_pluse_PID_M_T(i)))-t_M_T(i,1);  %M/T法，卡速度环采样时间为1ms，采集高频脉冲数和四倍频脉冲数，计算速度
+    
+    v_act_M_T(i)=(round((num_pluse_PID_M_T(i)-1)/resolution/delta_t_M_T(i)*60*10))/10;      %M/T法转速计算
+end
+clear t_FHG_M_T num_FHG_M_T;
+range_v_act_M_T=max(v_act_M_T)-min(v_act_M_T);
+std_v_act_M_T=std(v_act_M_T);
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%选择使用哪种方法
+% if drive_sample_frequency<2000
+%     v_act=v_act_M_T;
+%     q=2^(-7.35);
+% else v_act=v_act_M;
+%     q=2^(-5);
+% end
+if mean_delta_num>100  &&  abs(drive_sample_frequency-5360)<=0.00001
+    v_act=v_act_M_T;
+else v_act=v_act_M;
+end
+range_v_act=max(v_act)-min(v_act);
+std_v_act=std(v_act);
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%驱动器中求平均速度
+if abs(drive_sample_frequency-5360)<=0.00001
+    q=2^(-7.4);
+else q=2^(-5);
+end
+
+v_ave(1)=round(mean(v_act)/10)*10;
+for i=2:1:length(v_act)
+    v_ave(i)=(1-q)*v_ave(i-1)+q*v_act(i);
+end
+clear i;
+
+if drive_sample_frequency>2000
+    v_ave=v_ave+std(v_ave)/2;
+    v_ave=((round(v_ave.*10))/10);
+else v_ave=round(v_ave);
+end
+
+
+range_v_ave=max(v_ave)-min(v_ave);
+std_v_ave=std(v_ave);
+mean_v=round(mean(v_ave));
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+v_act_M_sin = v_act_M - v_ave;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%输出曲线
+if abs(drive_sample_frequency-5360)<=0.00001
+    drive_name='（驱动器：ESCON 50-5&';
+elseif abs(drive_sample_frequency-2500)<=0.00001
+    drive_name='（驱动器：EPOS4 50-5&';
+else
+    drive_name='（驱动器：EPOS2 36-2&';
+end
+
+if resolution==2500*4
+       encoder_name='编码器：HKM4808）-';
+elseif resolution==512*4
+       encoder_name='编码器：QM35-512）-';
+elseif resolution==4096*4
+       encoder_name='编码器：QM35-4096）-';
+elseif resolution==8192*4
+       encoder_name='编码器：QM35-8192）-';
+elseif resolution==32768*4
+       encoder_name='编码器：RIO-32768）-';
+end
+
+subtitle_name_1_string{1}='示波器采样频率为';
+subtitle_name_1_string{2}=num2str(1/delta_t_sample/10^6);
+subtitle_name_1_string{3}='MHz时A+B相信号（不差分）仿真转速稳定性';
+subtitle_name_1_string{4}=drive_name;
+subtitle_name_1_string{5}=encoder_name;
+subtitle_name_1_string{6}=num2str(mean_v);
+subtitle_name_1_string{7}='rpm';
+subtitle_name_1=strcat(subtitle_name_1_string{1},subtitle_name_1_string{2},subtitle_name_1_string{3},subtitle_name_1_string{4},...
+                     subtitle_name_1_string{5},subtitle_name_1_string{6},subtitle_name_1_string{7});
+
+subtitle_name_2_string{1}='示波器采样频率为';
+subtitle_name_2_string{2}=num2str(1/delta_t_sample/10^6);
+subtitle_name_2_string{3}='MHz时A+B相信号（不差分）仿真测角稳定性';
+subtitle_name_2_string{4}=drive_name;
+subtitle_name_2_string{5}=encoder_name;
+subtitle_name_2_string{6}=num2str(mean_v);
+subtitle_name_2_string{7}='rpm';
+subtitle_name_2=strcat(subtitle_name_2_string{1},subtitle_name_2_string{2},subtitle_name_2_string{3},subtitle_name_2_string{4},...
+                     subtitle_name_2_string{5},subtitle_name_2_string{6},subtitle_name_2_string{7});
+
+v_act_name_string{1}='仿真速度环采样频率为';
+v_act_name_string{2}=num2str(drive_sample_frequency/1000);
+v_act_name_string{3}='K时驱动器得到的实时速度曲线';
+v_act_title_name=strcat(v_act_name_string{1},v_act_name_string{2},v_act_name_string{3});
+
+v_ave_name_string{1}='仿真速度环采样频率为';
+v_ave_name_string{2}=num2str(drive_sample_frequency/1000);
+v_ave_name_string{3}='K时驱动器得到的平均速度曲线';
+v_ave_title_name=strcat(v_ave_name_string{1},v_ave_name_string{2},v_ave_name_string{3});
+
+figure(2);
+set(gcf,'position',[0,0,1920,1080]);
+
+subplot(2,1,1)
+plot(v_act);
+xlim([1,length(v_act)]);
+title(v_act_title_name,'fontsize',16);
+text(length(v_act),max(v_act),num2str(range_v_act));
+text(length(v_act),min(v_act),num2str(std_v_act));
+hold on;
+for i=1:length(tZmiddleshow)
+    plot([tZmiddleshow(i) tZmiddleshow(i)],[min(v_act) max(v_act)],'r');
+    hold on
+end
+grid on;
+subplot(2,1,2)
+plot(v_ave);
+xlim([1,length(v_ave)]);
+title(v_ave_title_name,'fontsize',16);
+text(length(v_ave),max(v_ave),num2str(range_v_ave));
+text(length(v_ave),min(v_ave),num2str(std_v_ave));
+grid on;
+hold on;
+
+% suptitle(subtitle_name_1);
+% saveas(gcf,['.\',subtitle_name_1,'.jpg']);
+% close gcf;
+
+
+figure(3);
+set(gcf,'position',[0,0,1920,1080]);
+
+subplot(2,1,1)
+plot(range_theta,range_delta_t_stability_2,'k');
+xlim([0,360]);
+text(max(360),max(range_delta_t_stability_2),num2str(max(range_delta_t_stability_2)));
+text(max(360),min(range_delta_t_stability_2),num2str(min(range_delta_t_stability_2)));
+title('仿真测角稳定性中极差与角度的关系','fontsize',16);
+grid on;
+hold on;
+
+subplot(2,1,2)
+plot(range_theta,std_delta_t_stability_2,'k');
+xlim([0,360]);
+text(max(360),max(std_delta_t_stability_2),num2str(max(std_delta_t_stability_2)));
+text(max(360),min(std_delta_t_stability_2),num2str(min(std_delta_t_stability_2)));
+title('仿真测角稳定性中标准差与角度的关系','fontsize',16);
+grid on;
+hold on;
+
+% suptitle(subtitle_name_2);
+% saveas(gcf,['.\',subtitle_name_2,'.jpg']);
+% close gcf;
+
+data_out_1=[range_delta_t_stability_1;std_delta_t_stability_1;range_delta_t_stability_2;std_delta_t_stability_2];
+data_ouy_2=[delta_t_stability_1;delta_t_stability_2];
+%clear all;
